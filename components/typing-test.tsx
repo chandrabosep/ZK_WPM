@@ -14,7 +14,6 @@ import { Clock, RefreshCw, Trophy } from "lucide-react";
 
 /* ─────────────────────  WORD BANK  ───────────────────── */
 const commonWords = [
-	// High-frequency short words
 	"the",
 	"of",
 	"and",
@@ -51,7 +50,6 @@ const commonWords = [
 	"your",
 	"can",
 	"said",
-	// Medium difficulty
 	"there",
 	"their",
 	"how",
@@ -84,7 +82,6 @@ const commonWords = [
 	"get",
 	"come",
 	"part",
-	// Tech / everyday
 	"code",
 	"data",
 	"file",
@@ -109,7 +106,6 @@ const commonWords = [
 	"task",
 	"open",
 	"view",
-	// Multi-syllable
 	"keyboard",
 	"software",
 	"computer",
@@ -131,7 +127,7 @@ const commonWords = [
 	"document",
 ];
 
-const generateWordList = (n = 100): string[] => {
+const generateWordList = (n = 100) => {
 	const arr = [...commonWords];
 	for (let i = arr.length - 1; i > 0; i--) {
 		const j = Math.floor(Math.random() * (i + 1));
@@ -168,8 +164,11 @@ export default function TypingTest() {
 		{ word: string; correct: boolean }[]
 	>([]);
 
-	/* ——— refs (live counters) ——— */
+	/* ——— refs ——— */
 	const startRef = useRef<number | null>(null);
+	const endRef = useRef<number | null>(null); // NEW
+	const keystrokesRef = useRef<string[]>([]); // NEW
+
 	const timerRef = useRef<NodeJS.Timeout | null>(null);
 	const statsRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -209,13 +208,15 @@ export default function TypingTest() {
 
 		correctKeyRef.current = 0;
 		errorKeyRef.current = 0;
+		keystrokesRef.current = []; // reset log
+		startRef.current = null;
+		endRef.current = null;
 
 		setTimeLeft(60);
 		setStarted(false);
 		setFinished(false);
 		setCompleted([]);
 		setCurrentLine(0);
-		startRef.current = null;
 
 		setTimeout(() => inputRef.current?.focus(), 50);
 	}, [clearTimers]);
@@ -244,10 +245,34 @@ export default function TypingTest() {
 	/* ——— finish ——— */
 	const finishTest = useCallback(() => {
 		if (finished || !startRef.current) return;
+		endRef.current = Date.now();
 		updateStats();
 		clearTimers();
 		setFinished(true);
-	}, [finished, updateStats, clearTimers]);
+
+		/* —— console report —— */
+		const chars = correctKeyRef.current + errorKeyRef.current;
+		const finalWpm = calcWPM(
+			chars,
+			(endRef.current ?? Date.now()) - startRef.current
+		);
+		const acc = chars
+			? Math.round((correctKeyRef.current / chars) * 100)
+			: 0;
+
+		console.log({
+			startTime: new Date(startRef.current).toLocaleTimeString(),
+			endTime: new Date(
+				endRef.current ?? Date.now()
+			).toLocaleTimeString(),
+			targetSentence: words.join(" "),
+			keystrokes: keystrokesRef.current,
+			wpm: finalWpm,
+			accuracy: acc,
+			correctWords,
+			wrongWords,
+		});
+	}, [finished, updateStats, clearTimers, words, correctWords, wrongWords]);
 
 	/* ——— countdown & stats intervals ——— */
 	useEffect(() => {
@@ -279,6 +304,12 @@ export default function TypingTest() {
 			startRef.current = Date.now();
 		}
 
+		/* record keystroke (character insertion/deletion) */
+		keystrokesRef.current.push(
+			val.length > input.length ? val.slice(-1) : "Backspace"
+		);
+
+		/* stats */
 		if (val.length !== input.length) {
 			const idx = val.length - 1;
 			const target = words[currentIdx] || "";
@@ -292,6 +323,9 @@ export default function TypingTest() {
 	};
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+		/* record special keys */
+		keystrokesRef.current.push(e.key);
+
 		if (e.key === " " || e.key === "Enter") {
 			e.preventDefault();
 			const typed = input.trim();
@@ -316,8 +350,8 @@ export default function TypingTest() {
 
 	/* ——— helpers ——— */
 	const isCurrentCorrect = useMemo(() => {
-		const word = words[currentIdx] || "";
-		return word.startsWith(input);
+		const w = words[currentIdx] || "";
+		return w.startsWith(input);
 	}, [words, currentIdx, input]);
 
 	const renderWord = (word: string, active: boolean) =>
@@ -390,6 +424,7 @@ export default function TypingTest() {
 										const comp = done
 											? completed[global]
 											: null;
+
 										return (
 											<span
 												key={`${global}-${w}`}
@@ -445,6 +480,7 @@ export default function TypingTest() {
 						</div>
 					</>
 				) : (
+					/* ——— results ——— */
 					<div className="space-y-4">
 						<div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
 							<ResultCard
@@ -499,7 +535,7 @@ export default function TypingTest() {
 	);
 }
 
-/* simple, neutral stat tile */
+/* simple stat tile */
 const ResultCard = memo(
 	({ value, label }: { value: React.ReactNode; label: string }) => (
 		<div className="rounded-lg border bg-muted p-5 text-center">
