@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -12,13 +12,12 @@ import {
 } from "@/components/ui/card";
 import { Clock, RefreshCw, Trophy } from "lucide-react";
 
-// Large corpus of common words for typing test - using more natural vocabulary
+/* ─────────────────────  WORD BANK  ───────────────────── */
 const commonWords = [
-	// Basic words (high frequency)
+	// High-frequency short words
 	"the",
 	"of",
 	"and",
-	"a",
 	"to",
 	"in",
 	"is",
@@ -44,28 +43,21 @@ const commonWords = [
 	"one",
 	"had",
 	"by",
-	"word",
-	"but",
 	"not",
-	"what",
+	"but",
 	"all",
-	"were",
 	"we",
 	"when",
 	"your",
 	"can",
 	"said",
-
-	// Medium difficulty words
+	// Medium difficulty
 	"there",
-	"use",
-	"each",
+	"their",
+	"how",
 	"which",
 	"she",
-	"how",
-	"their",
 	"will",
-	"other",
 	"about",
 	"out",
 	"many",
@@ -81,640 +73,425 @@ const commonWords = [
 	"look",
 	"more",
 	"write",
-	"number",
-	"way",
 	"could",
 	"people",
 	"than",
 	"first",
-	"water",
-	"been",
 	"call",
-	"who",
-	"oil",
 	"now",
 	"find",
 	"long",
-	"down",
-	"day",
-	"did",
 	"get",
 	"come",
-	"made",
-	"may",
 	"part",
-	"over",
-
-	// Technology words
+	// Tech / everyday
 	"code",
 	"data",
 	"file",
 	"type",
-	"line",
-	"byte",
-	"view",
-	"page",
 	"user",
-	"form",
-	"text",
 	"site",
 	"link",
-	"list",
-	"open",
-	"case",
-	"font",
-	"main",
-	"save",
+	"page",
+	"text",
+	"form",
+	"input",
+	"menu",
 	"tool",
-	"cell",
+	"save",
 	"work",
 	"path",
-	"menu",
+	"plan",
 	"copy",
-	"book",
-	"risk",
-	"task",
+	"game",
 	"team",
 	"help",
-	"home",
-	"blog",
-	"plan",
-	"need",
-	"game",
-	"care",
-
-	// Longer/challenging words
+	"task",
+	"open",
+	"view",
+	// Multi-syllable
 	"keyboard",
 	"software",
 	"computer",
-	"language",
 	"internet",
-	"document",
-	"solution",
-	"business",
+	"language",
 	"password",
-	"favorite",
-	"question",
-	"position",
-	"progress",
+	"solution",
+	"decision",
 	"security",
 	"download",
-	"personal",
-	"decision",
-	"research",
-	"different",
-	"learning",
-	"practice",
-	"category",
-	"analysis",
-	"strategy",
-	"response",
-	"database",
 	"function",
-	"network",
-	"project",
-	"control",
-	"support",
-	"digital",
-	"creative",
-	"standard",
-	"performance",
-	"experience",
-	"technology",
+	"progress",
+	"research",
 	"development",
+	"experience",
+	"performance",
 	"application",
+	"technology",
+	"document",
 ];
 
-// Generate a random word list of specified length
-const generateWordList = (wordCount = 80) => {
-	// Clone and shuffle the array using Fisher-Yates algorithm for better randomization
-	const shuffled = [...commonWords];
-	for (let i = shuffled.length - 1; i > 0; i--) {
+const generateWordList = (n = 100): string[] => {
+	const arr = [...commonWords];
+	for (let i = arr.length - 1; i > 0; i--) {
 		const j = Math.floor(Math.random() * (i + 1));
-		[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+		[arr[i], arr[j]] = [arr[j], arr[i]];
 	}
-
-	// Take needed number of words, or repeat if we need more words than available
-	let result: string[] = [];
-	while (result.length < wordCount) {
-		const remaining = wordCount - result.length;
-		const nextBatch = shuffled.slice(
-			0,
-			Math.min(remaining, shuffled.length)
-		);
-		result = [...result, ...nextBatch];
-	}
-
-	return result;
+	const res: string[] = [];
+	while (res.length < n)
+		res.push(...arr.slice(0, Math.min(n - res.length, arr.length)));
+	return res;
 };
 
+const calcWPM = (chars: number, ms: number) =>
+	ms < 600 ? 0 : Math.round(chars / 5 / (ms / 60000));
+
+/* ────────────────────  MAIN  ──────────────────── */
 export default function TypingTest() {
-	const [currentWordIndex, setCurrentWordIndex] = useState(0);
-	const [inputValue, setInputValue] = useState("");
+	/* ——— state ——— */
 	const [words, setWords] = useState<string[]>([]);
+	const [currentIdx, setCurrentIdx] = useState(0);
+	const [input, setInput] = useState("");
+
 	const [correctWords, setCorrectWords] = useState(0);
-	const [incorrectWords, setIncorrectWords] = useState(0);
-	const [totalKeystrokes, setTotalKeystrokes] = useState(0);
-	const [correctKeystrokes, setCorrectKeystrokes] = useState(0);
-	const [errorKeystrokes, setErrorKeystrokes] = useState(0);
-	const [totalChars, setTotalChars] = useState(0);
-	const startTimeRef = useRef<number | null>(null);
-	const [isStarted, setIsStarted] = useState(false);
-	const [isFinished, setIsFinished] = useState(false);
-	const [timeLeft, setTimeLeft] = useState(60); // 60 seconds timer
-	const [wordsPerMinute, setWordsPerMinute] = useState(0);
+	const [wrongWords, setWrongWords] = useState(0);
+
+	const [wpm, setWpm] = useState(0);
 	const [accuracy, setAccuracy] = useState(100);
-	const [netWPM, setNetWPM] = useState(0);
-	const inputRef = useRef<HTMLInputElement>(null);
-	const timerRef = useRef<NodeJS.Timeout | null>(null);
-	const statsTimerRef = useRef<NodeJS.Timeout | null>(null);
-	const [completedWords, setCompletedWords] = useState<
+	const [netWpm, setNetWpm] = useState(0);
+
+	const [timeLeft, setTimeLeft] = useState(60);
+	const [started, setStarted] = useState(false);
+	const [finished, setFinished] = useState(false);
+
+	const [completed, setCompleted] = useState<
 		{ word: string; correct: boolean }[]
 	>([]);
-	const [currentLine, setCurrentLine] = useState(0);
+
+	/* ——— refs (live counters) ——— */
+	const startRef = useRef<number | null>(null);
+	const timerRef = useRef<NodeJS.Timeout | null>(null);
+	const statsRef = useRef<NodeJS.Timeout | null>(null);
+
+	const correctKeyRef = useRef(0);
+	const errorKeyRef = useRef(0);
+
+	/* ——— layout helpers ——— */
 	const wordsPerLine = 5;
 	const linesVisible = 3;
+	const [currentLine, setCurrentLine] = useState(0);
+	const inputRef = useRef<HTMLInputElement>(null);
 
-	// Get the current visible words - memoized to avoid recalculation
 	const visibleWords = useMemo(() => {
-		const startIndex = currentLine * wordsPerLine;
-		const endIndex = startIndex + wordsPerLine * linesVisible;
-		return words.slice(startIndex, endIndex);
-	}, [words, currentLine, wordsPerLine, linesVisible]);
+		const start = currentLine * wordsPerLine;
+		return words.slice(start, start + wordsPerLine * linesVisible);
+	}, [words, currentLine]);
 
-	// Calculate WPM based on standard formula: (characters typed / 5) / time in minutes
-	const calculateWPM = useCallback((chars: number, timeInMs: number) => {
-		const minutes = timeInMs / 60000; // Convert ms to minutes
-		if (minutes < 0.01) return 0; // Avoid division by very small numbers
-		return Math.round(chars / 5 / minutes);
+	/* ——— timer cleanup ——— */
+	const clearTimers = useCallback(() => {
+		if (timerRef.current) clearInterval(timerRef.current);
+		if (statsRef.current) clearInterval(statsRef.current);
+		timerRef.current = statsRef.current = null;
 	}, []);
 
-	// Clear timers efficiently
-	const clearAllTimers = useCallback(() => {
-		if (timerRef.current) {
-			clearInterval(timerRef.current);
-			timerRef.current = null;
-		}
-		if (statsTimerRef.current) {
-			clearInterval(statsTimerRef.current);
-			statsTimerRef.current = null;
-		}
-	}, []);
-
-	// Start a new test
+	/* ——— start / reset ——— */
 	const startTest = useCallback(() => {
-		// Clear any existing timers
-		clearAllTimers();
+		clearTimers();
+		setWords(generateWordList());
+		setCurrentIdx(0);
+		setInput("");
 
-		// Generate a random word list
-		const wordList = generateWordList(100);
-		setWords(wordList);
-
-		// Reset all state
-		setCurrentWordIndex(0);
-		setInputValue("");
 		setCorrectWords(0);
-		setIncorrectWords(0);
-		setTotalChars(0);
-		setTotalKeystrokes(0);
-		setCorrectKeystrokes(0);
-		setErrorKeystrokes(0);
-		startTimeRef.current = null;
-		setIsStarted(false);
-		setIsFinished(false);
-		setTimeLeft(60);
-		setWordsPerMinute(0);
-		setNetWPM(0);
+		setWrongWords(0);
+		setWpm(0);
 		setAccuracy(100);
-		setCompletedWords([]);
+		setNetWpm(0);
+
+		correctKeyRef.current = 0;
+		errorKeyRef.current = 0;
+
+		setTimeLeft(60);
+		setStarted(false);
+		setFinished(false);
+		setCompleted([]);
 		setCurrentLine(0);
+		startRef.current = null;
 
-		// Focus the input field
-		setTimeout(() => inputRef.current?.focus(), 100);
-	}, [clearAllTimers]);
+		setTimeout(() => inputRef.current?.focus(), 50);
+	}, [clearTimers]);
 
-	// Cleanup on component unmount
 	useEffect(() => {
 		startTest();
-		return clearAllTimers;
-	}, [startTest, clearAllTimers]);
-
-	// Update WPM and accuracy stats
-	const updateStats = useCallback(() => {
-		if (!startTimeRef.current || totalChars === 0) return;
-
-		const elapsedTime = Date.now() - startTimeRef.current;
-		const wpm = calculateWPM(totalChars, elapsedTime);
-		setWordsPerMinute(wpm); // Remove minimum value enforcement
-
-		// Update accuracy
-		const totalStrokes = correctKeystrokes + errorKeystrokes;
-		if (totalStrokes > 0) {
-			const accuracyValue = Math.round(
-				(correctKeystrokes / totalStrokes) * 100
-			);
-			setAccuracy(accuracyValue); // Remove minimum value enforcement
-
-			// Calculate and update net WPM
-			const netWpmValue = Math.round(wpm * (accuracyValue / 100));
-			setNetWPM(netWpmValue); // Remove minimum value enforcement
-		}
-	}, [
-		startTimeRef,
-		totalChars,
-		correctKeystrokes,
-		errorKeystrokes,
-		calculateWPM,
-	]);
-
-	// Setup timer when test starts
-	useEffect(() => {
-		// Only start the timer when the test begins
-		if (isStarted && !isFinished) {
-			// If timer is not running, start it
-			if (!timerRef.current) {
-				// Record the exact start time if not already set
-				if (startTimeRef.current === null) {
-					startTimeRef.current = Date.now();
-				}
-
-				// Start the countdown timer
-				timerRef.current = setInterval(() => {
-					if (startTimeRef.current) {
-						const elapsedSeconds = Math.floor(
-							(Date.now() - startTimeRef.current) / 1000
-						);
-						const remaining = Math.max(0, 60 - elapsedSeconds);
-
-						if (remaining <= 0) {
-							// Time's up - make sure we calculate final stats
-							setTimeLeft(0);
-							finishTest();
-						} else {
-							setTimeLeft(remaining);
-						}
-					}
-				}, 100); // Update more frequently for smoother countdown
-
-				// Start the stats update timer if not already running
-				if (!statsTimerRef.current) {
-					statsTimerRef.current = setInterval(updateStats, 200); // Update more frequently for more responsive stats
-				}
-			}
-		}
-
-		return () => {
-			// Only clear timers when component unmounts or test finishes
-			if (isFinished) {
-				clearAllTimers();
-			}
-		};
-	}, [isStarted, isFinished, updateStats, clearAllTimers]);
-
-	// Finish test function (defined before it's used)
-	const finishTest = useCallback(() => {
-		// Calculate final stats before stopping timers
-		if (startTimeRef.current) {
-			const elapsedTime = Date.now() - startTimeRef.current;
-			const finalWPM = calculateWPM(totalChars, elapsedTime);
-
-			// Ensure we have meaningful stats even with limited typing
-			setWordsPerMinute(finalWPM); // Remove minimum value enforcement
-
-			const totalStrokes = correctKeystrokes + errorKeystrokes;
-			if (totalStrokes > 0) {
-				const accuracyValue = Math.round(
-					(correctKeystrokes / totalStrokes) * 100
-				);
-				setAccuracy(accuracyValue); // Remove minimum value enforcement
-				setNetWPM(Math.round(finalWPM * (accuracyValue / 100))); // Remove minimum value enforcement
-			} else {
-				// Default values if somehow no keystrokes were recorded
-				setAccuracy(0);
-				setNetWPM(0);
-			}
-		}
-
-		// Stop all timers
-		clearAllTimers();
-		setIsFinished(true);
-	}, [
-		clearAllTimers,
-		calculateWPM,
-		totalChars,
-		correctKeystrokes,
-		errorKeystrokes,
-	]);
-
-	// Automatically advance to next line when needed
-	useEffect(() => {
-		const lineIndex = Math.floor(currentWordIndex / wordsPerLine);
-		if (lineIndex > currentLine) {
-			setCurrentLine(lineIndex);
-		}
-	}, [currentWordIndex, currentLine, wordsPerLine]);
-
-	// Update stats when relevant values change
-	useEffect(() => {
-		if (isStarted && !isFinished) {
-			updateStats();
-		}
-	}, [
-		totalChars,
-		correctKeystrokes,
-		errorKeystrokes,
-		isStarted,
-		isFinished,
-		updateStats,
-	]);
-
-	const handleInputChange = useCallback(
-		(e: React.ChangeEvent<HTMLInputElement>) => {
-			const newValue = e.target.value;
-
-			// Start the test on first input
-			if (!isStarted && newValue.length > 0) {
-				setIsStarted(true);
-				startTimeRef.current = Date.now(); // Ensure timing starts immediately on first input
-			}
-
-			// Track keystrokes and accuracy
-			if (newValue.length !== inputValue.length) {
-				setTotalKeystrokes((prev) => prev + 1);
-
-				const currentWord = words[currentWordIndex] || "";
-				const lastCharIndex = newValue.length - 1;
-
-				if (lastCharIndex >= 0) {
-					if (
-						lastCharIndex < currentWord.length &&
-						newValue[lastCharIndex] === currentWord[lastCharIndex]
-					) {
-						setCorrectKeystrokes((prev) => prev + 1);
-					} else {
-						setErrorKeystrokes((prev) => prev + 1);
-					}
-				}
-			}
-
-			setInputValue(newValue);
-		},
-		[inputValue, isStarted, words, currentWordIndex]
-	);
-
-	const handleKeyDown = useCallback(
-		(e: React.KeyboardEvent) => {
-			if (e.key === " " || e.key === "Enter") {
-				e.preventDefault();
-				const val = inputValue.trim();
-				if (!val) return;
-
-				const currentWord = words[currentWordIndex];
-				const isCorrect = val === currentWord;
-
-				// Count all characters including space
-				setTotalChars((prev) => prev + currentWord.length + 1);
-
-				if (isCorrect) {
-					setCorrectWords((prev) => prev + 1);
-				} else {
-					setIncorrectWords((prev) => prev + 1);
-				}
-
-				// Track completed words
-				setCompletedWords((prev) => [
-					...prev,
-					{ word: currentWord, correct: isCorrect },
-				]);
-				setCurrentWordIndex((prev) => prev + 1);
-				setInputValue("");
-
-				// Check if we've reached the end
-				if (currentWordIndex >= words.length - 1) {
-					finishTest();
-				}
-			}
-		},
-		[inputValue, words, currentWordIndex, finishTest]
-	);
-
-	const handleFinish = () => {
-		if (isStarted && !isFinished) finishTest();
-	};
-
-	// Check if current input matches the current word - memoized
-	const isCurrentInputCorrect = useMemo(() => {
-		const currentWord = words[currentWordIndex];
-		if (!currentWord) return true;
-		return currentWord.startsWith(inputValue);
-	}, [words, currentWordIndex, inputValue]);
-
-	// Render a word with highlighting for current character
-	const renderWord = useCallback(
-		(word: string, isActive: boolean) => {
-			if (!isActive) return word;
-
-			const typedPart = word.substring(0, inputValue.length);
-			const remainingPart = word.substring(inputValue.length);
-			const isCorrect = word.startsWith(inputValue);
-
-			return (
-				<span>
-					<span
-						className={
-							isCorrect ? "text-green-600" : "text-red-600"
-						}
-					>
-						{typedPart}
-					</span>
-					<span>{remainingPart}</span>
-				</span>
-			);
-		},
-		[inputValue]
-	);
-
-	// Calculate elapsed time in seconds
-	const getElapsedTime = useCallback(() => {
-		if (!startTimeRef.current) return 0;
-		return Math.min(
-			60,
-			Math.floor((Date.now() - startTimeRef.current) / 1000)
-		);
+		return clearTimers;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	/* ——— live stats updater ——— */
+	const updateStats = useCallback(() => {
+		if (!startRef.current) return;
+		const chars = correctKeyRef.current + errorKeyRef.current;
+		const elapsed = Date.now() - startRef.current;
+		const curWpm = calcWPM(chars, elapsed);
+		setWpm(curWpm);
+
+		if (chars > 0) {
+			const acc = Math.round((correctKeyRef.current / chars) * 100);
+			setAccuracy(acc);
+			setNetWpm(Math.round((curWpm * acc) / 100));
+		}
+	}, []);
+
+	/* ——— finish ——— */
+	const finishTest = useCallback(() => {
+		if (finished || !startRef.current) return;
+		updateStats();
+		clearTimers();
+		setFinished(true);
+	}, [finished, updateStats, clearTimers]);
+
+	/* ——— countdown & stats intervals ——— */
+	useEffect(() => {
+		if (started && !finished) {
+			if (!timerRef.current) {
+				timerRef.current = setInterval(() => {
+					if (!startRef.current) return;
+					const elapsed = Math.floor(
+						(Date.now() - startRef.current) / 1000
+					);
+					const remain = Math.max(0, 60 - elapsed);
+					setTimeLeft(remain);
+					if (remain === 0) finishTest();
+				}, 200);
+			}
+			if (!statsRef.current)
+				statsRef.current = setInterval(updateStats, 200);
+		}
+		return () => {
+			if (finished) clearTimers();
+		};
+	}, [started, finished, finishTest, updateStats, clearTimers]);
+
+	/* ——— input handlers ——— */
+	const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+		const val = e.target.value;
+		if (!started && val) {
+			setStarted(true);
+			startRef.current = Date.now();
+		}
+
+		if (val.length !== input.length) {
+			const idx = val.length - 1;
+			const target = words[currentIdx] || "";
+			if (idx >= 0) {
+				if (idx < target.length && val[idx] === target[idx])
+					correctKeyRef.current += 1;
+				else errorKeyRef.current += 1;
+			}
+		}
+		setInput(val);
+	};
+
+	const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+		if (e.key === " " || e.key === "Enter") {
+			e.preventDefault();
+			const typed = input.trim();
+			if (!typed) return;
+
+			const target = words[currentIdx];
+			const correct = typed === target;
+			correct
+				? setCorrectWords((p) => p + 1)
+				: setWrongWords((p) => p + 1);
+
+			setCompleted((p) => [...p, { word: target, correct }]);
+			setCurrentIdx((p) => p + 1);
+			setInput("");
+
+			if (currentIdx >= words.length - 1) finishTest();
+
+			const lineIdx = Math.floor((currentIdx + 1) / wordsPerLine);
+			if (lineIdx > currentLine) setCurrentLine(lineIdx);
+		}
+	};
+
+	/* ——— helpers ——— */
+	const isCurrentCorrect = useMemo(() => {
+		const word = words[currentIdx] || "";
+		return word.startsWith(input);
+	}, [words, currentIdx, input]);
+
+	const renderWord = (word: string, active: boolean) =>
+		!active ? (
+			word
+		) : (
+			<>
+				<span
+					className={
+						isCurrentCorrect ? "text-green-600" : "text-red-600"
+					}
+				>
+					{word.slice(0, input.length)}
+				</span>
+				{word.slice(input.length)}
+			</>
+		);
+
+	/* ——— JSX ——— */
 	return (
 		<Card className="w-full">
 			<CardHeader>
 				<CardTitle className="flex items-center justify-between">
 					<span>Typing Speed Test</span>
 					<div className="flex items-center gap-4">
-						<div className="flex items-center gap-2">
+						<div className="flex items-center gap-1">
 							<Clock className="h-5 w-5" />
 							<span className="font-mono">{timeLeft}s</span>
 						</div>
-						{isStarted && !isFinished && (
+						{started && !finished && (
 							<div className="text-xs px-2 py-1 bg-blue-100 rounded-full text-blue-800">
-								{Math.round(wordsPerMinute)} WPM
+								{wpm} WPM
 							</div>
 						)}
 					</div>
 				</CardTitle>
 				<CardDescription>
-					Type each word and press space to continue. Your WPM and
-					accuracy are tracked in real-time.
+					Type each word and press&nbsp;space (or Enter). Stats update
+					live.
 				</CardDescription>
 			</CardHeader>
+
 			<CardContent className="space-y-4">
-				{!isFinished ? (
+				{!finished ? (
+					/* ——— active test ——— */
 					<>
+						{/* live stats */}
 						<div className="flex justify-between text-sm mb-2">
 							<div>
-								<span className="font-semibold">WPM:</span>{" "}
-								{isStarted
-									? Math.round(wordsPerMinute) || 0
-									: 0}
+								<strong>WPM:</strong> {started ? wpm : 0}
 							</div>
 							<div>
-								<span className="font-semibold">Accuracy:</span>{" "}
-								{isStarted ? accuracy || 0 : 0}%
+								<strong>Accuracy:</strong>{" "}
+								{started ? accuracy : 0}%
 							</div>
 							<div>
-								<span className="font-semibold">Net WPM:</span>{" "}
-								{isStarted ? netWPM || 0 : 0}
+								<strong>Net WPM:</strong> {started ? netWpm : 0}
 							</div>
 						</div>
-						<div className="p-6 bg-muted rounded-md flex flex-col gap-2 min-h-[200px]">
-							{visibleWords.length > 0 ? (
-								<div className="flex flex-wrap gap-2 leading-loose">
-									{visibleWords.map((word, idx) => {
-										const globalIdx =
-											currentLine * wordsPerLine + idx;
-										const isCompleted =
-											globalIdx < currentWordIndex;
-										const isActive =
-											globalIdx === currentWordIndex;
-										const completedWord = isCompleted
-											? completedWords[globalIdx]
-											: null;
 
+						{/* words */}
+						<div className="p-6 bg-muted rounded-md flex flex-col gap-2 min-h-[200px]">
+							{visibleWords.length ? (
+								<div className="flex flex-wrap gap-2 leading-loose">
+									{visibleWords.map((w, i) => {
+										const global =
+											currentLine * wordsPerLine + i;
+										const done = global < currentIdx;
+										const active = global === currentIdx;
+										const comp = done
+											? completed[global]
+											: null;
 										return (
 											<span
-												key={`${globalIdx}-${word}`}
+												key={`${global}-${w}`}
 												className={`text-lg transition-all ${
-													isCompleted
-														? completedWord &&
-														  completedWord.correct
+													done
+														? comp?.correct
 															? "text-green-600"
 															: "text-red-600"
-														: isActive
+														: active
 														? "bg-primary/20 px-1 rounded"
 														: "text-gray-800"
 												}`}
 											>
-												{isActive
-													? renderWord(word, true)
-													: word}
+												{active
+													? renderWord(w, true)
+													: w}
 											</span>
 										);
 									})}
 								</div>
 							) : (
-								<div className="flex items-center justify-center h-full">
-									<p className="text-muted-foreground">
-										Loading words...
-									</p>
-								</div>
+								<p className="text-muted-foreground">
+									Loading words…
+								</p>
 							)}
 						</div>
+
+						{/* input */}
 						<input
 							ref={inputRef}
 							type="text"
-							value={inputValue}
+							value={input}
 							onChange={handleInputChange}
 							onKeyDown={handleKeyDown}
-							disabled={isFinished}
-							placeholder="Type here..."
 							className={`w-full p-4 text-lg font-mono border rounded-md ${
-								isCurrentInputCorrect
-									? inputValue
+								isCurrentCorrect
+									? input
 										? "border-green-500 bg-green-50"
 										: "border-gray-300"
 									: "border-red-500 bg-red-50"
 							}`}
+							placeholder="Type here…"
 							autoFocus
 						/>
+
 						<div className="flex justify-between text-sm text-muted-foreground">
 							<div>
 								Progress:{" "}
-								{words.length > 0
-									? Math.round(
-											(currentWordIndex / words.length) *
-												100
-									  )
-									: 0}
-								%
+								{Math.round((currentIdx / words.length) * 100)}%
 							</div>
 							<div>Correct: {correctWords}</div>
-							<div>Incorrect: {incorrectWords}</div>
+							<div>Wrong: {wrongWords}</div>
 						</div>
 					</>
 				) : (
 					<div className="space-y-4">
-						<div className="grid grid-cols-2 gap-4">
+						<div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
 							<ResultCard
-								value={Math.round(wordsPerMinute)}
-								label="Words Per Minute"
-								icon={
-									<Trophy className="h-5 w-5 text-amber-500" />
+								value={
+									<>
+										{correctKeyRef.current +
+											errorKeyRef.current}
+										<div className="mt-1 text-xs text-muted-foreground">
+											<span className="text-green-600">
+												✓ {correctKeyRef.current}
+											</span>
+											{" · "}
+											<span className="text-red-600">
+												✗ {errorKeyRef.current}
+											</span>
+										</div>
+									</>
 								}
+								label="Keystrokes"
 							/>
+
+							<ResultCard value={wpm} label="Words / minute" />
 							<ResultCard
 								value={`${accuracy}%`}
 								label="Accuracy"
-								icon={<div className="text-lg">🎯</div>}
 							/>
-						</div>
-						<div className="grid grid-cols-3 gap-4">
-							<ResultCard
-								value={netWPM}
-								label="Net WPM"
-								icon={<div className="text-lg">⚡</div>}
-							/>
+							<ResultCard value={netWpm} label="Net WPM" />
 							<ResultCard
 								value={correctWords}
-								label="Correct Words"
-								icon={<div className="text-lg">✅</div>}
+								label="Correct words"
 							/>
 							<ResultCard
-								value={incorrectWords}
-								label="Incorrect Words"
-								icon={<div className="text-lg">❌</div>}
+								value={wrongWords}
+								label="Wrong words"
 							/>
-						</div>
-						<div className="mt-4 p-4 bg-blue-50 rounded-md">
-							<p className="text-sm text-blue-600">
-								<strong>Keystrokes:</strong> {correctKeystrokes}{" "}
-								correct, {errorKeystrokes} errors
-								<br />
-								<strong>Characters Typed:</strong> {totalChars}
-								<br />
-								<strong>Time Elapsed:</strong>{" "}
-								{getElapsedTime()} seconds
-							</p>
 						</div>
 					</div>
 				)}
 			</CardContent>
+
 			<CardFooter className="flex justify-between">
 				<Button variant="outline" onClick={startTest}>
-					<RefreshCw className="mr-2 h-4 w-4" />
-					New Test
+					<RefreshCw className="mr-2 h-4 w-4" /> New Test
 				</Button>
-				{!isFinished && isStarted && (
-					<Button onClick={handleFinish}>
-						<Trophy className="mr-2 h-4 w-4" />
-						Finish
+				{started && !finished && (
+					<Button onClick={finishTest}>
+						<Trophy className="mr-2 h-4 w-4" /> Finish
 					</Button>
 				)}
 			</CardFooter>
@@ -722,29 +499,13 @@ export default function TypingTest() {
 	);
 }
 
-// Memoized result card component to prevent unnecessary re-renders
-import { memo } from "react";
-
+/* simple, neutral stat tile */
 const ResultCard = memo(
-	({
-		value,
-		label,
-		icon,
-	}: {
-		value: number | string;
-		label: string;
-		icon?: React.ReactNode;
-	}) => {
-		return (
-			<div className="bg-muted p-4 rounded-md text-center">
-				<div className="flex items-center justify-center gap-2 mb-1">
-					{icon && <div>{icon}</div>}
-					<div className="text-3xl font-bold">{value}</div>
-				</div>
-				<div className="text-sm text-muted-foreground">{label}</div>
-			</div>
-		);
-	}
+	({ value, label }: { value: React.ReactNode; label: string }) => (
+		<div className="rounded-lg border bg-muted p-5 text-center">
+			<div className="text-3xl font-semibold leading-none">{value}</div>
+			<div className="mt-1 text-sm text-muted-foreground">{label}</div>
+		</div>
+	)
 );
-
 ResultCard.displayName = "ResultCard";
